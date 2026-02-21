@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SRT Generator — 音声文字起こし</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;700;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #080808;
+      --surface:   #111111;
+      --surf2:     #1a1a1a;
+      --border:    #252525;
+      --bdhover:   #444444;
+      --text:      #eeeeee;
+      --dim:       #555555;
+      --accent:    #e8372c;
+      --accent2:   #b82a21;
+      --green:     #2ce87a;
+      --font-body: 'Zen Kaku Gothic New', 'Noto Sans JP', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-body);
+      font-size: 15px;
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ─── NOISE OVERLAY ─── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+      background-size: 200px;
+      opacity: 0.022;
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    /* ─── LAYOUT ─── */
+    .wrap {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 64px 24px 96px;
+    }
+
+    /* ─── HEADER ─── */
+    header {
+      margin-bottom: 56px;
+    }
+    .badge {
+      display: inline-block;
+      background: var(--accent);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      padding: 3px 10px;
+      margin-bottom: 20px;
+    }
+    h1 {
+      font-size: clamp(2.2rem, 6vw, 3.4rem);
+      font-weight: 900;
+      letter-spacing: -.02em;
+      line-height: 1.1;
+      color: var(--text);
+    }
+    h1 span { color: var(--accent); }
+    .subtitle {
+      margin-top: 14px;
+      color: var(--dim);
+      font-size: 13px;
+      letter-spacing: .04em;
+    }
+
+    /* ─── CARD ─── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 32px;
+      margin-bottom: 16px;
+    }
+
+    /* ─── DROP ZONE ─── */
+    .dropzone {
+      border: 2px dashed var(--border);
+      padding: 52px 32px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      position: relative;
+    }
+    .dropzone:hover,
+    .dropzone.dragover {
+      border-color: var(--accent);
+      background: rgba(232,55,44,.04);
+    }
+    .dropzone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+    .dz-icon {
+      display: block;
+      margin: 0 auto 16px;
+      width: 48px;
+      height: 48px;
+      color: var(--dim);
+      transition: color .2s;
+    }
+    .dropzone:hover .dz-icon,
+    .dropzone.dragover .dz-icon { color: var(--accent); }
+    .dz-label {
+      font-size: 15px;
+      color: var(--dim);
+    }
+    .dz-label strong { color: var(--text); }
+    .dz-hint {
+      margin-top: 8px;
+      font-size: 11px;
+      color: var(--dim);
+      letter-spacing: .04em;
+    }
+    .file-info {
+      display: none;
+      align-items: center;
+      gap: 14px;
+      margin-top: 20px;
+      padding: 14px 18px;
+      background: var(--surf2);
+      border: 1px solid var(--border);
+    }
+    .file-info.visible { display: flex; }
+    .file-info svg { flex-shrink: 0; color: var(--accent); }
+    .file-name {
+      font-size: 13px;
+      font-weight: 700;
+      word-break: break-all;
+    }
+    .file-size {
+      font-size: 11px;
+      color: var(--dim);
+      margin-top: 2px;
+    }
+    .file-remove {
+      margin-left: auto;
+      background: none;
+      border: none;
+      color: var(--dim);
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      padding: 4px;
+      transition: color .15s;
+    }
+    .file-remove:hover { color: var(--accent); }
+
+    /* ─── OPTIONS ─── */
+    .options-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 24px;
+    }
+    label.opt-label {
+      display: block;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--dim);
+      margin-bottom: 8px;
+    }
+    select, input[type="number"] {
+      width: 100%;
+      background: var(--surf2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: var(--font-body);
+      font-size: 14px;
+      padding: 10px 14px;
+      appearance: none;
+      outline: none;
+      transition: border-color .2s;
+    }
+    select:focus, input[type="number"]:focus {
+      border-color: var(--accent);
+    }
+    .select-wrap {
+      position: relative;
+    }
+    .select-wrap::after {
+      content: '▾';
+      position: absolute;
+      right: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--dim);
+      pointer-events: none;
+      font-size: 12px;
+    }
+    .opt-hint {
+      margin-top: 5px;
+      font-size: 10px;
+      color: var(--dim);
+    }
+
+    /* ─── BUTTON ─── */
+    .btn-convert {
+      margin-top: 28px;
+      width: 100%;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      font-family: var(--font-body);
+      font-size: 15px;
+      font-weight: 900;
+      letter-spacing: .08em;
+      padding: 16px 24px;
+      cursor: pointer;
+      text-transform: uppercase;
+      transition: background .2s, transform .1s;
+      position: relative;
+      overflow: hidden;
+    }
+    .btn-convert:hover:not(:disabled) { background: var(--accent2); }
+    .btn-convert:active:not(:disabled) { transform: scale(.99); }
+    .btn-convert:disabled { opacity: .4; cursor: not-allowed; }
+
+    /* ─── LOADING ─── */
+    .loading {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      padding: 48px 32px;
+      text-align: center;
+    }
+    .loading.visible { display: flex; }
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text {
+      font-size: 14px;
+      color: var(--dim);
+      letter-spacing: .06em;
+    }
+    .loading-text strong {
+      display: block;
+      color: var(--text);
+      font-size: 16px;
+      margin-bottom: 4px;
+    }
+    .loading-model-tag {
+      display: inline-block;
+      background: var(--surf2);
+      border: 1px solid var(--border);
+      color: var(--dim);
+      font-size: 11px;
+      font-family: var(--font-mono);
+      padding: 3px 10px;
+      margin-top: 8px;
+    }
+
+    /* ─── ERROR ─── */
+    .error-box {
+      display: none;
+      background: rgba(232,55,44,.1);
+      border: 1px solid var(--accent);
+      padding: 16px 20px;
+      font-size: 13px;
+      color: var(--accent);
+    }
+    .error-box.visible { display: block; }
+
+    /* ─── RESULTS ─── */
+    .results { display: none; }
+    .results.visible { display: block; }
+
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1px;
+      background: var(--border);
+      margin-bottom: 24px;
+    }
+    .stat {
+      background: var(--surface);
+      padding: 18px 16px;
+      text-align: center;
+    }
+    .stat-val {
+      display: block;
+      font-size: 26px;
+      font-weight: 900;
+      color: var(--accent);
+      letter-spacing: -.02em;
+      line-height: 1;
+    }
+    .stat-lbl {
+      display: block;
+      margin-top: 4px;
+      font-size: 10px;
+      color: var(--dim);
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--dim);
+      margin-bottom: 10px;
+    }
+
+    .srt-preview {
+      background: var(--surf2);
+      border: 1px solid var(--border);
+      padding: 20px;
+      max-height: 320px;
+      overflow-y: auto;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.9;
+      color: #aaa;
+      white-space: pre;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+    .srt-preview .srt-idx { color: var(--dim); }
+    .srt-preview .srt-time { color: #555; }
+    .srt-preview .srt-text { color: var(--text); font-size: 13px; }
+
+    .full-text-box {
+      margin-top: 16px;
+      background: var(--surf2);
+      border: 1px solid var(--border);
+      padding: 18px 20px;
+      font-size: 14px;
+      line-height: 1.9;
+      color: #aaa;
+      max-height: 160px;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+
+    .btn-download {
+      margin-top: 20px;
+      width: 100%;
+      background: transparent;
+      color: var(--green);
+      border: 2px solid var(--green);
+      font-family: var(--font-body);
+      font-size: 15px;
+      font-weight: 900;
+      letter-spacing: .08em;
+      padding: 15px 24px;
+      cursor: pointer;
+      text-transform: uppercase;
+      transition: background .2s, color .2s;
+    }
+    .btn-download:hover {
+      background: var(--green);
+      color: #000;
+    }
+    .btn-reset {
+      margin-top: 10px;
+      width: 100%;
+      background: transparent;
+      color: var(--dim);
+      border: 1px solid var(--border);
+      font-family: var(--font-body);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      padding: 12px 24px;
+      cursor: pointer;
+      text-transform: uppercase;
+      transition: border-color .2s, color .2s;
+    }
+    .btn-reset:hover { border-color: var(--bdhover); color: var(--text); }
+
+    /* ─── FOOTER ─── */
+    footer {
+      margin-top: 64px;
+      border-top: 1px solid var(--border);
+      padding-top: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--dim);
+      letter-spacing: .04em;
+    }
+    footer a { color: var(--dim); text-decoration: none; }
+    footer a:hover { color: var(--text); }
+
+    /* ─── ANIMATED ENTRY ─── */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(18px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .wrap > * {
+      animation: fadeUp .5s both;
+    }
+    .wrap > header  { animation-delay: .05s; }
+    .wrap > #upload-card { animation-delay: .12s; }
+    .wrap > #results-section { animation-delay: .18s; }
+    .wrap > footer  { animation-delay: .22s; }
+
+    /* scrollbar webkit */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); }
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ─── HEADER ─── -->
+  <header>
+    <div class="badge">Whisper × SRT</div>
+    <h1>音声を<span>SRT</span>に<br>変換する</h1>
+    <p class="subtitle">
+      音声・動画ファイルをアップロードすると Whisper が日本語文字起こしを行い、<br>
+      縦型動画（9:16）向けに10文字以内で区切った SRT ファイルを生成します。
+    </p>
+  </header>
+
+  <!-- ─── UPLOAD + OPTIONS ─── -->
+  <div class="card" id="upload-card">
+
+    <!-- DROP ZONE -->
+    <div class="dropzone" id="dropzone">
+      <input type="file" id="file-input" accept="audio/*,video/mp4,.m4a,.flac,.ogg,.aac,.wav,.mp3,.mp4,.webm" />
+      <svg class="dz-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M12 18.5V6.5M12 6.5L8 10.5M12 6.5L16 10.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M3 15.5v3a2 2 0 002 2h14a2 2 0 002-2v-3" stroke-linecap="round"/>
+        <path d="M9 4.5a3 3 0 110 6 3 3 0 010-6z" opacity="0"/>
+        <ellipse cx="12" cy="11" rx="5" ry="5" stroke="none"/>
+        <circle cx="12" cy="11" r="4" opacity="0"/>
+      </svg>
+      <p class="dz-label"><strong>ここにファイルをドロップ</strong>またはクリックして選択</p>
+      <p class="dz-hint">MP3 / WAV / M4A / MP4 / FLAC / OGG / AAC 対応　最大 500MB</p>
+    </div>
+
+    <div class="file-info" id="file-info">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M9 17H7A5 5 0 017 7h1M15 7h1a5 5 0 010 10h-1M8 12h8" stroke-linecap="round"/>
+      </svg>
+      <div>
+        <div class="file-name" id="file-name"></div>
+        <div class="file-size" id="file-size"></div>
+      </div>
+      <button class="file-remove" id="file-remove" title="ファイルを削除">×</button>
+    </div>
+
+    <!-- OPTIONS -->
+    <div class="options-grid">
+      <div>
+        <label class="opt-label" for="model-select">Whisper モデル</label>
+        <div class="select-wrap">
+          <select id="model-select">
+            <option value="tiny">tiny — 最速・低精度</option>
+            <option value="base" selected>base — バランス型</option>
+            <option value="small">small — 高精度</option>
+            <option value="medium">medium — より高精度</option>
+            <option value="large">large — 最高精度・低速</option>
+          </select>
+        </div>
+        <p class="opt-hint">初回はモデルのダウンロードが発生します</p>
+      </div>
+      <div>
+        <label class="opt-label" for="max-chars">最大文字数／行</label>
+        <input type="number" id="max-chars" value="10" min="3" max="30" step="1" />
+        <p class="opt-hint">縦型動画は 8〜12 文字推奨</p>
+      </div>
+    </div>
+
+    <!-- CONVERT BUTTON -->
+    <button class="btn-convert" id="btn-convert" disabled>
+      変換する — CONVERT
+    </button>
+  </div>
+
+  <!-- ─── LOADING ─── -->
+  <div class="card loading" id="loading">
+    <div class="spinner"></div>
+    <div class="loading-text">
+      <strong>文字起こし中...</strong>
+      大きなファイルは数分かかる場合があります
+      <span class="loading-model-tag" id="loading-model-tag">model: base</span>
+    </div>
+  </div>
+
+  <!-- ─── ERROR ─── -->
+  <div class="error-box" id="error-box"></div>
+
+  <!-- ─── RESULTS ─── -->
+  <div id="results-section" class="results">
+    <div class="card">
+      <div class="stats-row">
+        <div class="stat">
+          <span class="stat-val" id="stat-segs">—</span>
+          <span class="stat-lbl">セグメント数</span>
+        </div>
+        <div class="stat">
+          <span class="stat-val" id="stat-dur">—</span>
+          <span class="stat-lbl">音声時間 (秒)</span>
+        </div>
+        <div class="stat">
+          <span class="stat-val" id="stat-chars">—</span>
+          <span class="stat-lbl">最大文字数／行</span>
+        </div>
+      </div>
+
+      <p class="section-title">SRT プレビュー</p>
+      <div class="srt-preview" id="srt-preview"></div>
+
+      <p class="section-title" style="margin-top:20px">全文テキスト</p>
+      <div class="full-text-box" id="full-text-box"></div>
+
+      <button class="btn-download" id="btn-download">
+        SRT ファイルをダウンロード
+      </button>
+      <button class="btn-reset" id="btn-reset">
+        最初からやり直す — RESET
+      </button>
+    </div>
+  </div>
+
+  <!-- ─── FOOTER ─── -->
+  <footer>
+    <span>Powered by OpenAI Whisper × Flask</span>
+    <span>縦型動画（9:16）SRT ジェネレーター</span>
+  </footer>
+
+</div><!-- /wrap -->
+
+<script>
+  const dropzone    = document.getElementById('dropzone');
+  const fileInput   = document.getElementById('file-input');
+  const fileInfo    = document.getElementById('file-info');
+  const fileName    = document.getElementById('file-name');
+  const fileSize    = document.getElementById('file-size');
+  const fileRemove  = document.getElementById('file-remove');
+  const btnConvert  = document.getElementById('btn-convert');
+  const loadingEl   = document.getElementById('loading');
+  const loadingTag  = document.getElementById('loading-model-tag');
+  const errorBox    = document.getElementById('error-box');
+  const results     = document.getElementById('results-section');
+  const srtPreview  = document.getElementById('srt-preview');
+  const fullTextBox = document.getElementById('full-text-box');
+  const btnDownload = document.getElementById('btn-download');
+  const btnReset    = document.getElementById('btn-reset');
+  const modelSelect = document.getElementById('model-select');
+  const maxCharsEl  = document.getElementById('max-chars');
+  const uploadCard  = document.getElementById('upload-card');
+
+  let currentFile = null;
+  let currentSrt  = '';
+
+  // ─── FILE SELECTION ───
+  function formatBytes(b) {
+    if (b < 1024)       return b + ' B';
+    if (b < 1048576)    return (b / 1024).toFixed(1) + ' KB';
+    return (b / 1048576).toFixed(1) + ' MB';
+  }
+
+  function setFile(file) {
+    currentFile = file;
+    fileName.textContent = file.name;
+    fileSize.textContent = formatBytes(file.size);
+    fileInfo.classList.add('visible');
+    btnConvert.disabled = false;
+    clearError();
+    results.classList.remove('visible');
+  }
+
+  function clearFile() {
+    currentFile = null;
+    fileInput.value = '';
+    fileInfo.classList.remove('visible');
+    btnConvert.disabled = true;
+  }
+
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) setFile(fileInput.files[0]);
+  });
+  fileRemove.addEventListener('click', clearFile);
+
+  // drag & drop
+  dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+  dropzone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropzone.classList.remove('dragover');
+    const f = e.dataTransfer.files[0];
+    if (f) setFile(f);
+  });
+
+  // ─── UI HELPERS ───
+  function showLoading(model) {
+    uploadCard.style.display = 'none';
+    loadingEl.classList.add('visible');
+    loadingTag.textContent = 'model: ' + model;
+    results.classList.remove('visible');
+    clearError();
+  }
+
+  function hideLoading() {
+    loadingEl.classList.remove('visible');
+    uploadCard.style.display = '';
+  }
+
+  function showError(msg) {
+    errorBox.textContent = '⚠ エラー: ' + msg;
+    errorBox.classList.add('visible');
+  }
+
+  function clearError() {
+    errorBox.classList.remove('visible');
+    errorBox.textContent = '';
+  }
+
+  // ─── RENDER SRT WITH SYNTAX HIGHLIGHTING ───
+  function renderSrt(srt) {
+    return srt.split('\n').map(line => {
+      if (/^\d+$/.test(line.trim())) {
+        return `<span class="srt-idx">${escHtml(line)}</span>`;
+      } else if (/-->/. test(line)) {
+        return `<span class="srt-time">${escHtml(line)}</span>`;
+      } else if (line.trim()) {
+        return `<span class="srt-text">${escHtml(line)}</span>`;
+      }
+      return '';
+    }).join('\n');
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // ─── CONVERT ───
+  btnConvert.addEventListener('click', async () => {
+    if (!currentFile) return;
+
+    const model    = modelSelect.value;
+    const maxChars = parseInt(maxCharsEl.value) || 10;
+
+    showLoading(model);
+
+    const fd = new FormData();
+    fd.append('audio', currentFile);
+    fd.append('model', model);
+    fd.append('max_chars', maxChars);
+
+    try {
+      const res  = await fetch('/transcribe', { method: 'POST', body: fd });
+      const data = await res.json();
+
+      hideLoading();
+
+      if (!res.ok || data.error) {
+        showError(data.error || `HTTP ${res.status}`);
+        return;
+      }
+
+      currentSrt = data.srt;
+
+      // populate stats
+      document.getElementById('stat-segs').textContent = data.segments_count;
+      document.getElementById('stat-dur').textContent  = data.duration;
+      document.getElementById('stat-chars').textContent = maxChars;
+
+      srtPreview.innerHTML  = renderSrt(data.srt);
+      fullTextBox.textContent = data.full_text;
+
+      results.classList.add('visible');
+      results.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    } catch (err) {
+      hideLoading();
+      showError(err.message);
+    }
+  });
+
+  // ─── DOWNLOAD ───
+  btnDownload.addEventListener('click', () => {
+    if (!currentSrt) return;
+    const blob = new Blob([currentSrt], { type: 'text/plain;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    const base = (currentFile?.name || 'transcription').replace(/\.[^.]+$/, '');
+    a.href     = url;
+    a.download = base + '.srt';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  // ─── RESET ───
+  btnReset.addEventListener('click', () => {
+    clearFile();
+    results.classList.remove('visible');
+    clearError();
+    currentSrt = '';
+  });
+</script>
+</body>
+</html>

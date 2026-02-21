@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Flask
+instance/
+.webassets-cache
+
+# Logs
+server.log
+*.log
+
+# Temp / uploaded files
+*.tmp
+*.wav
+*.mp3
+*.mp4
+*.m4a
+*.flac
+
+# Whisper model cache
+~/.cache/whisper/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
