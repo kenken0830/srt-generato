@@ -4,9 +4,29 @@ import tempfile
 import wave
 import numpy as np
 from flask import Flask, request, jsonify, render_template
+from flask_cors import CORS
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB
+
+# CORS: Next.js フロントエンドからのリクエストを許可
+CORS(app, resources={r"/api/*": {"origins": os.environ.get("ALLOWED_ORIGIN", "*")}})
+
+# API キー認証（環境変数 API_SECRET_KEY を設定しておく）
+API_SECRET_KEY = os.environ.get("API_SECRET_KEY", "")
+
+def require_api_key(f):
+    """Bearer トークンで API キーを検証するデコレータ。"""
+    from functools import wraps
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not API_SECRET_KEY:          # キー未設定なら認証スキップ（開発時）
+            return f(*args, **kwargs)
+        auth = request.headers.get("Authorization", "")
+        if auth != f"Bearer {API_SECRET_KEY}":
+            return jsonify({"error": "Unauthorized"}), 401
+        return f(*args, **kwargs)
+    return decorated
 
 _model_cache = {}
 
@@ -142,7 +162,8 @@ def index():
     return render_template('index.html')
 
 
-@app.route('/transcribe', methods=['POST'])
+@app.route('/api/transcribe', methods=['POST'])
+@require_api_key
 def transcribe():
     if 'audio' not in request.files:
         return jsonify({'error': 'No audio file provided'}), 400
@@ -208,4 +229,6 @@ def transcribe():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    port = int(os.environ.get('PORT', 5000))
+    debug = os.environ.get('FLASK_ENV') != 'production'
+    app.run(host='0.0.0.0', port=port, debug=debug)
